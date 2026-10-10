@@ -1,0 +1,10 @@
+streamlit==1.65.0
+openai==3.28.0
+pydantic==2.14.0
+PyYAML==6.0.3
+python-dotenv==1.2.4
+tenacity==9.2.1
+pymupdf==1.28.2
+qdrant-client[fastembed]==1.19.1
+fastembed==0.8.1
+pytest==9.1.1

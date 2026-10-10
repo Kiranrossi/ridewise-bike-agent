@@ -1,0 +1,21 @@
+# Secrets — never commit
+.env
+*.key
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated stores
+index/
+logs/
+
+# Event material (participant-only)
+Neostats Hackathon AI USECASE*.pdf
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
