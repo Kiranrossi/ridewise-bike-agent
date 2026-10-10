@@ -10,6 +10,10 @@ font = "sans serif"
 toolbarMode = "minimal"
 showSidebarNavigation = false
 
+[runner]
+# Never auto-render bare expressions; everything on screen is an explicit st.* call.
+magicEnabled = false
+
 [server]
 headless = true
 

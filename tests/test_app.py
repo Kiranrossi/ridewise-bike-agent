@@ -33,6 +33,25 @@ def app():
     return AppTest.from_file(str(ROOT / "app.py"), default_timeout=120).run()
 
 
+DEBUG_ELEMENTS = {"help_info", "json", "exception"}
+
+
+def _element_types(at) -> set[str]:
+    def walk(node):
+        yield node.type
+        for child in getattr(node, "children", {}).values():
+            yield from walk(child)
+    return set(walk(at.main)) | set(walk(at.sidebar))
+
+
+def test_no_stray_debug_output_on_any_page(app):
+    """Regression: a bare tuple in warm_up() was rendered by Streamlit magic as object docs."""
+    assert not _element_types(app) & DEBUG_ELEMENTS
+    app.text_input[0].input("CUST0001")
+    app.button[1].click().run()
+    assert not _element_types(app) & DEBUG_ELEMENTS
+
+
 def test_login_page_defaults_to_customer(app):
     assert not app.exception
     assert [t.label for t in app.text_input] == ["Customer ID"]

@@ -62,8 +62,6 @@ header[data-testid="stHeader"] {background: transparent;}
 .rw-step.err {border-left-color:#B42318;}
 .rw-step .t {font-weight:600; font-size:.86rem; color:#1B2430;}
 .rw-step .d {font-size:.8rem; color:#5B6B7A;}
-.rw-foot {position:fixed; bottom:0; left:0; right:0; text-align:center; font-size:.72rem; color:#7A8794;
-          padding:.2rem; pointer-events:none;}
 div[data-testid="stChatMessage"] {border-radius:14px;}
 .stButton > button {border-radius:10px;}
 div[data-testid="stForm"] {border:none; padding:0;}
@@ -121,7 +119,8 @@ def warm_up() -> bool:
     from ridewise.rules import load_rules
     load_rules()
     ensure_index()
-    dense_model(), sparse_model()
+    dense_model()
+    sparse_model()
     return True
 
 
@@ -264,8 +263,9 @@ def sidebar() -> None:
         st.markdown(f'<span class="rw-badge {"warn" if degraded else "ok"}">'
                     f'{"● Limited mode (AI unavailable)" if degraded else "● AI assistant online"}</span>',
                     unsafe_allow_html=True)
-        st.caption("Amounts and refunds are calculated by RideWise policy rules in code, not estimated by "
-                   "the AI. Every answer lists its sources.")
+        st.caption("Answers come from RideWise records and published policies; amounts and refunds are "
+                   "calculated by policy rules in code, not estimated by the AI. Every answer lists its "
+                   "sources. The assistant cannot change bookings.")
 
 
 # ------------------------------------------------------------------ chat rendering
@@ -398,9 +398,6 @@ def chat_page() -> None:
                                           "trace": reply.trace, "degraded": reply.degraded,
                                           "seconds": reply.seconds})
         st.rerun()
-
-    st.markdown('<div class="rw-foot">RideWise Assist answers from RideWise records and published policies. '
-                'It cannot make changes to bookings.</div>', unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ main
