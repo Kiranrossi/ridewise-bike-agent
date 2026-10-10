@@ -37,21 +37,30 @@ class Verdict:
         return not self.issues
 
 
-def _evidence(corpus: str) -> tuple[set, set, set]:
-    full, partial = set(), set()
+def _evidence(corpus: str) -> tuple[set, set, set, dict]:
+    full, partial, spelled = set(), set(), {}
     for m in DATE_RE.finditer(corpus):
         if m.group(4):
-            full.add((int(m.group(4)), MONTHS[m.group(3).lower()[:3]], int(m.group(2))))
+            key = (int(m.group(4)), MONTHS[m.group(3).lower()[:3]], int(m.group(2)))
+            full.add(key)
+            spelled.setdefault(key, m.group(0).strip().rstrip(","))
         partial.add((MONTHS[m.group(3).lower()[:3]], int(m.group(2))))
     for y, mo, d in ISO_DATE_RE.findall(corpus):
         full.add((int(y), int(mo), int(d)))
         partial.add((int(mo), int(d)))
     numbers = {round(float(n), 2) for n in NUMBER_RE.findall(_normalise_numbers(corpus))}
-    return full, partial, numbers
+    return full, partial, numbers, spelled
+
+
+def _suggest(day: int, mon: int, year: int | None, spelled: dict) -> str:
+    """Records with the same day number (typical month-copy slip), to make the repair concrete."""
+    hits = [text for (y, mo, d), text in sorted(spelled.items())
+            if d == day and mo != mon and (year is None or y == year)]
+    return f" (records have: {', '.join(hits[:3])})" if hits else ""
 
 
 def verify(answer: str, corpus: str, today: date) -> Verdict:
-    full, partial, numbers = _evidence(corpus)
+    full, partial, numbers, spelled = _evidence(corpus)
     v = Verdict()
     for m in DATE_RE.finditer(answer):
         v.dates_checked += 1
@@ -61,14 +70,16 @@ def verify(answer: str, corpus: str, today: date) -> Verdict:
         if wd:
             try:
                 if all(date(y, mon, day).weekday() != WEEKDAYS.index(wd.lower()[:3]) for y in years):
-                    v.issues.append(f"'{text}': weekday does not match the date")
+                    v.issues.append(f"'{text}': weekday does not match the date"
+                                    + _suggest(day, mon, int(year) if year else None, spelled))
                     continue
             except ValueError:
                 v.issues.append(f"'{text}': not a valid date")
                 continue
         grounded = (int(year), mon, day) in full if year else (mon, day) in partial
         if not grounded and (mon, day) != (today.month, today.day):
-            v.issues.append(f"'{text}': date not found in the records or tool results")
+            v.issues.append(f"'{text}': date not found in the records or tool results"
+                            + _suggest(day, mon, int(year) if year else None, spelled))
     sums = {round(a + b, 2) for a in numbers for b in numbers} if len(numbers) < 600 else set()
     for m in MONEY_RE.finditer(_normalise_numbers(answer)):
         v.amounts_checked += 1

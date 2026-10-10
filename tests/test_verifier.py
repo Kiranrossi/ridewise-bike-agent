@@ -99,3 +99,10 @@ def test_cancelled_booking_details_include_calculator_refund():
     r = execute(Session("customer", "CUST0150"), "get_booking_details", {"booking_id": "B-1165"})
     ra = r["refund_assessment"]
     assert ra["policy_version"] == "v2" and ra["refund_pct"] == 75 and ra["refund_total"] == 283.2
+
+
+def test_month_slip_without_weekday_gets_a_concrete_suggestion():
+    # Real red-team case: record says "Sat 05 Sep 2026", model wrote "05 Oct 2026".
+    evidence = json.dumps({"scheduled_pickup": "Sat 05 Sep 2026, 11:30 IST"})
+    v = verify("Pickup 05 Oct 2026 11:30 IST", evidence, TODAY)
+    assert not v.ok and "records have: Sat 05 Sep 2026" in v.issues[0]
