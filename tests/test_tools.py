@@ -6,7 +6,7 @@ import pytest
 from ridewise.tools.base import Session
 from ridewise.tools.registry import TOOLS, execute, tools_for
 
-AGENT_ONLY = {"find_customer", "get_customer", "list_damage_reports", "run_readonly_sql"}
+AGENT_ONLY = {"find_customer", "get_customer", "list_damage_reports", "run_readonly_sql", "audit_refunds"}
 CUSTOMER_ONLY = {"get_my_profile", "list_my_bookings"}
 
 

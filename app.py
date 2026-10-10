@@ -102,6 +102,9 @@ TOOL_LABELS = {
     "run_readonly_sql": "Ran a read-only analytics query",
     "content_filter": "Blocked by the platform safety filter",
     "account_snapshot": "Used your account summary (fetched from records at the start of this turn)",
+    "estimate_late_fee": "Calculated a late fee from policy",
+    "audit_refunds": "Audited refunds against policy (all cancelled / no-show bookings)",
+    "verify_answer": "Checked dates and amounts in the answer against the records",
 }
 
 
@@ -277,9 +280,18 @@ def sidebar() -> None:
 
 def _step_detail(step: dict) -> str:
     args, res = step.get("args") or {}, step.get("result") or {}
+    name = step["tool"]
+    if name == "verify_answer":
+        detail = f"{res.get('dates_checked', 0)} date(s), {res.get('amounts_checked', 0)} amount(s) checked"
+        if res.get("issues_found"):
+            detail += " · corrected before showing: " + "; ".join(res["issues_found"])
+            if res.get("after_repair"):
+                detail += " · still unverified: " + "; ".join(res["after_repair"])
+        else:
+            detail += " · all match"
+        return html.escape(detail)
     if not step.get("ok"):
         return html.escape(res.get("error", "failed"))
-    name = step["tool"]
     if name == "search_policy":
         return "Query: “" + html.escape(str(args.get("query", ""))) + "”"
     if name == "refund_quote" and "rule" in res:
@@ -290,6 +302,10 @@ def _step_detail(step: dict) -> str:
         return f"{res.get('row_count', 0)} row(s)" + (" (truncated)" if res.get("truncated") else "")
     if name == "quote_rental":
         return html.escape(f"{args.get('model')} · {args.get('hours')} h")
+    if name == "audit_refunds":
+        return html.escape(f"{res.get('checked', 0)} bookings checked · "
+                           f"{len(res.get('refund_owed_not_yet_issued') or [])} not yet issued · "
+                           f"{len(res.get('mismatches') or [])} mismatch(es)")
     return html.escape(", ".join(f"{k}={v}" for k, v in args.items()) or "—")
 
 
@@ -312,6 +328,8 @@ def _calc_steps(step: dict) -> list[str]:
         return res.get("steps", [])
     if step["tool"] == "quote_rental":
         return (res.get("rental") or {}).get("steps", [])
+    if step["tool"] == "estimate_late_fee":
+        return (res.get("late_fee") or {}).get("steps", [])
     if step["tool"] == "explain_charges":
         out = []
         for key in ("late_fee", "battery_fee"):
@@ -372,7 +390,7 @@ def render_message(msg: dict, is_agent: bool) -> None:
         # Model output is rendered as Markdown only (no raw HTML); '$' escaped so it never becomes LaTeX.
         st.markdown(msg["content"].replace("$", "\\$"))
         if msg["role"] == "assistant":
-            tools = len([t for t in msg.get("trace") or [] if t["tool"] != "content_filter"])
+            tools = len([t for t in msg.get("trace") or [] if t["tool"] not in ("content_filter", "verify_answer")])
             st.markdown(f'<div class="rw-meta">{msg.get("seconds", 0)} s · {tools} lookup(s)</div>',
                         unsafe_allow_html=True)
             render_details(msg, is_agent)

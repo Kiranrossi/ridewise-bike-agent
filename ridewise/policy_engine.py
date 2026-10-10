@@ -120,10 +120,11 @@ def late_fee(scheduled_end: datetime, returned_at: datetime, hourly_rate: float,
     steps = [f"{minutes:.0f} min late → {hours_charged} late hour(s) (each hour or part-hour counts)"]
     if grace:
         steps.append(f"Beyond the {grace}-minute {tier} grace period, so the full lateness is charged")
-    steps += [f"{hours_charged} × ({lr.rate_multiplier:g} × {_inr(hourly_rate)}) = {_inr(amount)}",
+    steps += [f"Late-hour rate: {lr.rate_multiplier:g} × {_inr(hourly_rate)} = {_inr(per_hour)} per late hour",
+              f"{hours_charged} × {_inr(per_hour)} = {_inr(amount)}",
               f"GST {load_rules().pricing.gst_rate:.0%} = {_inr(gst)}"]
     return Calc(_r(amount), gst, _r(amount + gst), f"{hours_charged}h × {lr.rate_multiplier:g} × hourly rate",
-                lr.source, steps, inputs | {"hours_charged": hours_charged})
+                lr.source, steps, inputs | {"hours_charged": hours_charged, "rate_per_late_hour": _r(per_hour)})
 
 
 def battery_fee(vehicle_type: str, return_battery_pct: int | None) -> Calc:

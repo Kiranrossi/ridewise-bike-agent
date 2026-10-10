@@ -10,7 +10,7 @@ cities:
   Pune: [pune]
 
 hubs:   # the 7 hubs listed in RW-POL-01 §3.1
-  Koramangala: [koramangala, kormangala, koramangla]
+  Koramangala: [koramangala, kormangala, koramangla, kora]
   Indiranagar: [indiranagar, indira nagar, indra nagar]
   Jayanagar: [jayanagar, jaya nagar]
   HSR Layout: [hsr layout, hsr]

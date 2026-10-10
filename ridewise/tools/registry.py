@@ -70,6 +70,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          "Recompute and explain every charge on a booking (rental, late fee, low-battery fee, damage) and compare "
          "with what was recorded. Optionally estimate a late fee for a hypothetical return time.",
          sh.ExplainArgs, sh.t_explain_charges),
+    Tool("estimate_late_fee",
+         "Calculate a hypothetical late-return fee from policy: '1 hour 10 minutes late on a Royal Enfield', "
+         "'what if I'm 40 minutes late with booking B-xxxx'. Applies part-hour rounding, 1.5× rate, tier grace "
+         "and GST. Use instead of computing late fees yourself.",
+         sh.LateFeeArgs, sh.t_estimate_late_fee),
     Tool("get_my_profile",
          "The logged-in customer's own profile: tier and its benefits, KYC status and meaning, booking counts.",
          cu.NoArgs, cu.t_get_my_profile),
@@ -86,6 +91,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("list_damage_reports",
          "Damage reports/claims filtered by report ID, booking, customer, claim status, category, severity or hub.",
          ag.DamageArgs, ag.t_list_damage_reports),
+    Tool("audit_refunds",
+         "Find cancelled/no-show bookings whose refund is owed but not yet issued, or whose recorded refund "
+         "differs from policy. Recomputes every refund with the policy calculator. ALWAYS use this (not SQL) for "
+         "'which refunds are pending/missing/wrong' — a booking with no refund row is often correctly owed 0%.",
+         ag.AuditArgs, ag.t_audit_refunds),
     Tool("run_readonly_sql", ag.sql_tool_description, ag.SqlArgs, ag.t_run_readonly_sql),
 ]}
 

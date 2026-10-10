@@ -21,7 +21,9 @@ from ridewise.config import settings
 from ridewise.db import record_queries
 from ridewise.prompts import build_system_prompt
 from ridewise.tools.base import Session
+from ridewise.timeutil import IST
 from ridewise.tools.registry import execute, tools_for
+from ridewise.verifier import verify
 
 log = logging.getLogger(__name__)
 
@@ -139,6 +141,7 @@ class Agent:
                                                               "information gathered; say what is missing."})
                 answer = self._complete(messages, allow_tools=False).choices[0].message.content
             answer = _clean(answer) or "Sorry, I couldn't produce an answer. Please rephrase your question."
+            answer = self._verify_and_repair(answer, messages, trace, history, user_message, system_prompt)
             self._remember(user_message, answer)
             if trace:
                 self.last_tool_results = json.dumps(
@@ -162,6 +165,42 @@ class Agent:
         except (*RETRYABLE, openai.APIStatusError, TimeoutError) as e:
             log.warning("LLM unavailable, using fallback: %s", type(e).__name__)
             return self._fallback(user_message, trace, t0)
+
+    def _verify_and_repair(self, answer: str, messages: list[dict], trace: list[dict], history: list[dict],
+                           user_message: str, system_prompt: str) -> str:
+        """Check every date and ₹ amount against this turn's evidence; on failure, ask the model once to
+        rewrite using only grounded values. The check is recorded in the trace for transparency."""
+        evidence = "\n".join([system_prompt, self.last_tool_results, user_message,
+                              *[m["content"] for m in history if m.get("role") == "user"],
+                              *[json.dumps({k: v for k, v in t["result"].items() if k != "queries"},
+                                           ensure_ascii=False, default=str) for t in trace]])
+        today = self.session.now().astimezone(IST).date()
+        first = verify(answer, evidence, today)
+        if not first.dates_checked and not first.amounts_checked:
+            return answer
+        step = {"tool": "verify_answer", "args": {}, "ok": first.ok, "ms": 0,
+                "result": {"ok": first.ok, "dates_checked": first.dates_checked,
+                           "amounts_checked": first.amounts_checked, "issues_found": first.issues}}
+        if not first.ok:
+            repair = messages + [
+                {"role": "assistant", "content": answer},
+                {"role": "system", "content": "Verification failed. These values in your answer do not match the "
+                 "tool results or records: " + "; ".join(first.issues) + ". Rewrite the answer copying dates and "
+                 "amounts exactly as they appear in the tool results. Remove any figure you computed yourself."}]
+            try:
+                fixed = _clean(self._complete(repair, allow_tools=False).choices[0].message.content)
+            except Exception:                      # repair is best-effort; never lose the answer
+                fixed = ""
+            second = verify(fixed, evidence, today) if fixed else first
+            if fixed:
+                answer = fixed
+            step["result"]["after_repair"] = second.issues
+            step["ok"] = step["result"]["ok"] = second.ok
+            if not second.ok:
+                answer += ("\n\n_Note: some figures above could not be verified against RideWise records — "
+                           "please check the sources below or contact support._")
+        trace.append(step)
+        return answer
 
     def _cite(self, raw: list[str]) -> list[dict]:
         return sources.normalise(raw, self.session.customer_id)

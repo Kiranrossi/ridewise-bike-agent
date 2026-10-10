@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from ridewise import db
+from ridewise.policy_engine import refund_quote
 from ridewise.rules import load_rules
 from ridewise.timeutil import fmt_ist, parse_utc
 from ridewise.tools.base import Args, Session, ToolError, format_booking, normalise_booking_id, normalise_customer_id
@@ -107,6 +108,9 @@ def sql_tool_description() -> str:
         "CNL_S cancelled by RideWise, NSH no-show. payments.payment_type: BOOKING, DEPOSIT, PENALTY, REFUND; "
         "money moved = payment_status='SUCCESS' only (FAILED is never charged, PENDING not yet confirmed); "
         "REFUND amounts are negative; amount excludes GST (gst_amount separate). "
+        "Revenue = SUM(amount) of SUCCESS payments, EXCLUDING GST (GST is tax collected, not revenue); "
+        "net rental revenue also subtracts refunds; say which definition you used. "
+        "Month/day filters should use IST: datetime(col, '+5 hours', '+30 minutes'). "
         "Timestamps are UTC text 'YYYY-MM-DD HH:MM:SS'; for IST use datetime(col, '+5 hours', '+30 minutes'). "
         "ALWAYS group/filter cities with norm_city(city) and hubs with norm_hub(hub_name) "
         "(raw city values are inconsistent, e.g. BLR/Bangalore/Bengaluru). "
@@ -124,3 +128,47 @@ def t_run_readonly_sql(session: Session, a: SqlArgs) -> dict:
     except db.SqlRejected as e:
         raise ToolError(str(e)) from e
     return r | {"sources": ["Read-only analytics query on ridewise.db (SQL shown under How I got this)"]}
+
+
+# ------------------------------------------------------------------ audit_refunds
+
+AUDIT_SQL = ("SELECT booking_id, customer_id, booking_status, booked_at, scheduled_start, cancelled_at "
+             "FROM bookings WHERE booking_status IN ('CNL_U', 'CNL_S', 'NSH') ORDER BY booking_id")
+
+
+class AuditArgs(Args):
+    include_ok: bool = Field(False, description="Also list bookings whose refund is correct (normally omitted).")
+
+
+def t_audit_refunds(session: Session, a: AuditArgs) -> dict:
+    """Recompute the policy refund for every cancelled / no-show booking and compare with refunds issued.
+    A booking without a refund row is NOT necessarily a problem: late cancellations are owed 0%."""
+    agent = db.AgentData()
+    with db.connect() as con:
+        ids = [r[0] for r in con.execute(AUDIT_SQL)]
+    not_issued, mismatches, ok, none_due = [], [], [], 0
+    with db.pause_recording():
+        for bid in ids:
+            d = agent.booking_details(bid)
+            q = refund_quote(d["booking"], d["payment_summary"], now=session.now())
+            row = {"booking_id": bid, "customer_id": d["booking"]["customer_id"], "status": q["status"],
+                   "policy_version": q["policy_version"], "rule": q["rule"], "refund_owed_total": q["refund_total"],
+                   "refund_already_issued": q.get("refund_already_issued")}
+            state = q.get("refund_state")
+            if state == "not_yet_issued":
+                not_issued.append(row | {"cancelled_at": q.get("cancelled_at_ist"), "processing": q.get("processing"),
+                                         "overdue": q.get("processing_overdue")})
+            elif state == "mismatch":
+                mismatches.append(row | {"note": q.get("mismatch_note")})
+            elif state == "none_due":
+                none_due += 1
+            else:
+                ok.append(bid)
+    db.note_query(AUDIT_SQL, (), len(ids))
+    return {"checked": len(ids), "refund_owed_not_yet_issued": not_issued, "mismatches": mismatches,
+            "correctly_issued": len(ok), "no_refund_due": none_due,
+            **({"correct_bookings": ok} if a.include_ok else {}),
+            "method": "Policy refund recomputed for each cancelled/no-show booking (version by booking time, "
+                      "slab by hours before pickup) and compared with REFUND payments recorded.",
+            "sources": [f"booking {r['booking_id']}" for r in not_issued + mismatches]
+                       + ["RW-POL-02 §1–4; RW-POL-03 §1–4, Annexure 1 (scanned), p.2"]}

@@ -3,6 +3,7 @@ customers via CustomerData (own bookings only), agents via AgentData."""
 from __future__ import annotations
 
 import difflib
+from datetime import datetime, timedelta
 
 from pydantic import Field
 
@@ -11,8 +12,8 @@ from ridewise.policy_engine import explain_charges, late_fee, quote_rental, refu
 from ridewise.retrieval import search_policy
 from ridewise.rules import load_rules
 from ridewise.tools.base import (Args, BookingIdArgs, Session, ToolError, format_booking,
-                                 format_payments, parse_user_time)
-from ridewise.timeutil import fmt_ist, parse_utc
+                                 format_payments, normalise_booking_id, parse_user_time)
+from ridewise.timeutil import UTC, fmt_ist, parse_utc
 
 
 def _scope(session: Session):
@@ -111,10 +112,19 @@ def t_get_booking_details(session: Session, a: BookingIdArgs) -> dict:
                  "customer_charged": claim[r["claim_status"]].meaning,
                  "gst_if_charged": round(r["assessed_cost"] * gst_rate, 2)}
               for r in d["damage_reports"]]
-    return {"booking": format_booking(d["booking"], session.role), "payments": pay,
-            "damage_reports": damage,
-            "sources": [f"booking {a.booking_id}"] + [p["payment_id"] for p in pay["payments"]]
-                       + [r["report_id"] for r in damage]}
+    out = {"booking": format_booking(d["booking"], session.role), "payments": pay, "damage_reports": damage,
+           "sources": [f"booking {a.booking_id}"] + [p["payment_id"] for p in pay["payments"]]
+                      + [r["report_id"] for r in damage]}
+    if d["booking"]["booking_status"] in ("CNL_U", "CNL_S", "NSH"):
+        # Include the calculator's refund assessment so the model never works it out itself.
+        q = refund_quote(d["booking"], d["payment_summary"], now=session.now())
+        out["refund_assessment"] = {k: q.get(k) for k in (
+            "policy_version", "policy_doc", "version_rule", "time_before_pickup", "rule", "refund_pct",
+            "refund_amount", "refund_gst", "refund_total", "refund_state", "refund_already_issued",
+            "processing", "expected_credit_by", "mismatch_note") if q.get(k) is not None}
+        if q.get("source"):
+            out["sources"].append(q["source"])
+    return out
 
 
 # ------------------------------------------------------------------ refund_quote
@@ -148,9 +158,12 @@ def t_explain_charges(session: Session, a: ExplainArgs) -> dict:
     d = _details_or_fail(session, a.booking_id)
     b = d["booking"]
     out = explain_charges(b, d["payment_summary"], d["damage_reports"], now=session.now())
+    out["vehicle"] = {"model": b["model"], "vehicle_type": b["vehicle_type"], "hourly_rate": b["hourly_rate"],
+                      "daily_rate": b["daily_rate"], "customer_tier": b["customer_tier"]}
     if a.assume_return_at:
         if b["booking_status"] not in ("UPC", "ONG"):
-            raise ToolError("A hypothetical return time only applies to upcoming or ongoing bookings.")
+            raise ToolError("A hypothetical return time only applies to upcoming or ongoing bookings; for a "
+                            "general 'what if I'm late' question use estimate_late_fee.")
         at = parse_user_time(a.assume_return_at, session.now())
         out["late_fee_estimate"] = late_fee(parse_utc(b["scheduled_end"]), at, b["hourly_rate"],
                                             b["customer_tier"]).to_dict()
@@ -158,3 +171,37 @@ def t_explain_charges(session: Session, a: ExplainArgs) -> dict:
             load_rules().penalties.low_battery.source]
     srcs += [p["payment_id"] for p in d["payment_summary"]["payments"] if p["payment_type"] == "PENALTY"]
     return out | {"sources": srcs}
+
+
+# ------------------------------------------------------------------ estimate_late_fee
+
+class LateFeeArgs(Args):
+    minutes_late: int = Field(ge=0, le=60 * 24 * 14, description="How many minutes after the scheduled return.")
+    model: str | None = Field(None, description="Vehicle model (e.g. 'Royal Enfield Classic 350'), or use booking_id.")
+    booking_id: str | None = Field(None, description="Use this booking's vehicle and the customer's tier.")
+    tier: str | None = Field(None, description="Staff only: STANDARD, SILVER or GOLD (default STANDARD). "
+                                               "Customers always get their own tier.")
+
+
+def t_estimate_late_fee(session: Session, a: LateFeeArgs) -> dict:
+    """Hypothetical late fee: '1h10m late on a Classic 350' → policy calculator, no LLM arithmetic."""
+    tier = (a.tier or "STANDARD").upper()
+    if a.booking_id:
+        b = _details_or_fail(session, normalise_booking_id(a.booking_id))["booking"]
+        vehicle, tier = {"model": b["model"], "vehicle_type": b["vehicle_type"], "hourly_rate": b["hourly_rate"]}, \
+            b["customer_tier"]
+    elif a.model:
+        vehicle = _match_model(a.model)
+    else:
+        raise ToolError("Give either a vehicle model or a booking ID.")
+    if session.role == "customer":
+        tier = db.CustomerData(session.customer_id).profile()["customer_tier"]
+    if tier not in load_rules().penalties.late_return.grace_minutes_by_tier:
+        raise ToolError("Tier must be STANDARD, SILVER or GOLD.")
+    t0 = datetime(2000, 1, 1, tzinfo=UTC)
+    calc = late_fee(t0, t0 + timedelta(minutes=a.minutes_late), vehicle["hourly_rate"], tier)
+    calc.inputs.pop("scheduled_end_ist", None)
+    calc.inputs.pop("returned_at_ist", None)
+    return {"vehicle": {k: vehicle.get(k) for k in ("model", "vehicle_type", "hourly_rate")},
+            "tier": tier, "late_fee": calc.to_dict(),
+            "sources": [load_rules().penalties.late_return.source, "vehicles table (rates)"]}

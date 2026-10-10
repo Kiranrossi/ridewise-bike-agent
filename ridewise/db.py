@@ -85,6 +85,21 @@ def record_queries():
         _query_log.reset(token)
 
 
+@contextmanager
+def pause_recording():
+    """Run many lookups without listing each one (callers note a representative query instead)."""
+    token = _query_log.set(None)
+    try:
+        yield
+    finally:
+        _query_log.reset(token)
+
+
+def note_query(sql: str, params: tuple = (), rows: int = 0) -> None:
+    """Record a query for display without executing it (used with pause_recording)."""
+    _record(sql, params, rows)
+
+
 def _record(sql: str, params: tuple, n: int) -> None:
     log = _query_log.get()
     if log is not None:

@@ -9,6 +9,7 @@ roles:
       - search_policy
       - get_vehicle_catalog
       - quote_rental
+      - estimate_late_fee
       - get_my_profile
       - list_my_bookings
       - get_booking_details
@@ -21,9 +22,11 @@ roles:
       - search_policy
       - get_vehicle_catalog
       - quote_rental
+      - estimate_late_fee
       - get_booking_details
       - refund_quote
       - explain_charges
+      - audit_refunds
       - find_customer
       - get_customer
       - list_damage_reports

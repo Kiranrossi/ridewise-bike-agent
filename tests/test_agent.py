@@ -71,7 +71,10 @@ def test_snapshot_facts_are_cited_with_their_sql():
     assert {"kind": "db", "table": "bookings", "ids": [upcoming], "file": "ridewise.db"} in r.sources
     step = r.trace[-1]
     assert step["tool"] == "account_snapshot" and step["result"]["queries"]
-    assert all("CUST0001" in q["sql"] for q in step["result"]["queries"])
+    sqls = [q["sql"] for q in step["result"]["queries"]]
+    # bookings are fetched by the session customer; payment lookups only for those same bookings
+    assert any("customer_id = 'CUST0001'" in s for s in sqls)
+    assert all("customer_id = 'CUST0001'" in s or "booking_id = 'B-" in s for s in sqls)
 
 
 def test_customer_request_never_contains_agent_tools():
