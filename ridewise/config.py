@@ -20,6 +20,8 @@ class Settings:
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_model: str = os.getenv("LLM_MODEL", "")
     llm_timeout: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
+    llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "medium")
+    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     db_path: Path = _path(os.getenv("DB_PATH", "Data/ridewise.db"))
     index_path: Path = _path(os.getenv("INDEX_PATH", "index"))

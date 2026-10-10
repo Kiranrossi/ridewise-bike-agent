@@ -103,6 +103,23 @@ def test_hypothetical_cancellation_of_upcoming_booking():
     assert refund_quote(b, p, cancel_at=start + timedelta(minutes=1), now=NOW)["cancellable"] is False
 
 
+def test_what_if_for_already_cancelled_booking():
+    b, p, _ = _details("B-1729")                              # actually cancelled 46.5h before → 75%
+    start = parse_utc(b["scheduled_start"])
+    q = refund_quote(b, p, cancel_at=start - timedelta(hours=72), now=NOW)
+    assert q["hypothetical"] and q["refund_pct"] == 100 and q["refund_amount"] == 400.0
+    assert "refund_state" not in q and q["status"] == "CNL_U"
+    assert refund_quote(b, p, now=NOW)["refund_pct"] == 75   # actual outcome unchanged
+
+
+def test_refund_quote_includes_schedule_and_credit_date():
+    b, p, _ = _details("B-1729")
+    q = refund_quote(b, p, now=NOW)
+    assert "12h or more but less than 48h: 75%" in q["refund_schedule"]
+    assert q["time_before_pickup"] == "46 h 30 min"
+    assert q["expected_credit_by"] == "Fri 23 Oct 2026"
+
+
 def test_completed_booking_not_cancellable():
     b, p, _ = _details(_ids("booking_status='CMP'")[0])
     assert refund_quote(b, p, now=NOW)["cancellable"] is False

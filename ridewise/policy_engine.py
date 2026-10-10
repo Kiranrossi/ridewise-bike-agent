@@ -8,6 +8,7 @@ source clause and the inputs used, so every answer can be checked.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
@@ -153,6 +154,20 @@ def add_working_days(dt: datetime, days: int) -> datetime:
     return d
 
 
+def _schedule_text(version) -> list[str]:
+    slabs, out = version.slabs, []
+    for i, s in enumerate(slabs):
+        upper = slabs[i - 1].min_hours_before if i else None
+        if upper is None:
+            band = f"{s.min_hours_before:g}h or more before pickup"
+        elif s.min_hours_before == 0:
+            band = f"less than {upper:g}h before pickup"
+        else:
+            band = f"{s.min_hours_before:g}h or more but less than {upper:g}h"
+        out.append(f"{band}: {s.refund_pct:g}%")
+    return out
+
+
 def refund_quote(booking: dict, payments: dict, cancel_at: datetime | None = None,
                  now: datetime | None = None) -> dict:
     """Refund owed for a booking.
@@ -174,6 +189,9 @@ def refund_quote(booking: dict, payments: dict, cancel_at: datetime | None = Non
             "policy_version": version.id, "policy_doc": version.doc_id,
             "version_rule": f"Version decided by booking time: booked {fmt_ist(booked_at)}, "
                             f"v2 applies to bookings made on/after 01 Jul 2026 00:00 IST",
+            "refund_schedule": _schedule_text(version) + [
+                f"Cancelled by RideWise: {common['cancelled_by_ridewise_pct']}% (any timing)",
+                f"No-show: {common['no_show_pct']}%"],
             "rental_paid": paid, "rental_gst_paid": gst_paid,
             "rental_pending": payments.get("rental_pending", 0.0),
             "deposit_note": "Security deposit (if any) is returned in full on cancellation via the payment "
@@ -184,6 +202,12 @@ def refund_quote(booking: dict, payments: dict, cancel_at: datetime | None = Non
                        "explanation": "Cancellation is only possible before the scheduled pickup time; "
                                       "this booking has already started or finished."}
 
+    # "What if I had cancelled at X?" for cancelled / no-show bookings is a hypothetical too.
+    what_if = cancel_at is not None and status in ("CNL_U", "NSH")
+    if what_if:
+        base["actual_status_note"] = (f"Hypothetical: what the refund would have been if cancelled at "
+                                      f"{fmt_ist(cancel_at)} (actual status: {status}).")
+        status = "UPC"
     if status == "NSH":
         pct, rule, source, when = 0, "No-show: no refund", common["sources"]["no_show"], None
     elif status == "CNL_S":
@@ -202,6 +226,8 @@ def refund_quote(booking: dict, payments: dict, cancel_at: datetime | None = Non
         rule = (f"{version.id}: cancelled {hours_before:.1f}h before pickup → "
                 f"slab '≥{slab.min_hours_before:g}h' = {slab.refund_pct:g}%")
         base["hours_before_pickup"] = round(hours_before, 2)
+        h, m = divmod(round(hours_before * 60), 60)
+        base["time_before_pickup"] = f"{h} h {m} min"
 
     refund = _r(paid * pct / 100)
     refund_gst = _gst(refund)       # GST on the refunded amount (= same proportion of GST paid)
@@ -222,12 +248,17 @@ def refund_quote(booking: dict, payments: dict, cancel_at: datetime | None = Non
         if abs(issued - refund) < 0.01:
             out["refund_state"] = "issued" if refund else "none_due"
         elif issued == 0 and when is not None:
-            by = add_working_days(when, common["processing"]["initiated_within_working_days"])
+            proc = common["processing"]
+            by = add_working_days(when, proc["initiated_within_working_days"])
+            credit_max = max(int(n) for n in re.findall(r"\d+", str(proc["credited_within_working_days"])))
+            credited_by = add_working_days(by, credit_max)
             out["refund_state"] = "not_yet_issued"
-            out["processing"] = (f"Refunds are initiated within {common['processing']['initiated_within_working_days']} "
-                                 f"working days of cancellation (by about {by.strftime('%a %d %b %Y')}) and credited "
-                                 f"to the original payment method within {common['processing']['credited_within_working_days']} "
-                                 f"working days.")
+            out["processing"] = (f"Refunds are initiated within {proc['initiated_within_working_days']} working days of "
+                                 f"cancellation (by about {by.strftime('%a %d %b %Y')}) and credited to the original "
+                                 f"payment method within {proc['credited_within_working_days']} working days after that "
+                                 f"(by about {credited_by.strftime('%a %d %b %Y')}). Working days exclude weekends; "
+                                 f"public holidays may add delay.")
+            out["expected_credit_by"] = credited_by.strftime("%a %d %b %Y")
             out["processing_overdue"] = now.astimezone(IST).date() > by.date()
         else:
             out["refund_state"] = "mismatch"

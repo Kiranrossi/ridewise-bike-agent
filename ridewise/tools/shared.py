@@ -42,7 +42,7 @@ def t_search_policy(session: Session, a: SearchPolicyArgs) -> dict:
     if not hits:
         raise ToolError("No matching policy text found.")
     return {"results": [{k: h[k] for k in ("source", "applies_to", "text")} for h in hits],
-            "sources": [h["source"] for h in hits]}
+            "sources": [h["source"] for h in hits[:3]]}
 
 
 # ------------------------------------------------------------------ get_vehicle_catalog
@@ -103,8 +103,13 @@ def t_quote_rental(session: Session, a: QuoteArgs) -> dict:
 def t_get_booking_details(session: Session, a: BookingIdArgs) -> dict:
     d = _details_or_fail(session, a.booking_id)
     pay = format_payments(d["payment_summary"])
+    claim = load_rules().penalties.damage.claim_status
+    gst_rate = load_rules().pricing.gst_rate
     damage = [{k: r[k] for k in ("report_id", "damage_category", "severity", "description",
-                                 "assessed_cost", "claim_status")} | {"reported_at": fmt_ist(parse_utc(r["reported_at"]))}
+                                 "assessed_cost", "claim_status")}
+              | {"reported_at": fmt_ist(parse_utc(r["reported_at"])),
+                 "customer_charged": claim[r["claim_status"]].meaning,
+                 "gst_if_charged": round(r["assessed_cost"] * gst_rate, 2)}
               for r in d["damage_reports"]]
     return {"booking": format_booking(d["booking"], session.role), "payments": pay,
             "damage_reports": damage,
@@ -115,8 +120,10 @@ def t_get_booking_details(session: Session, a: BookingIdArgs) -> dict:
 # ------------------------------------------------------------------ refund_quote
 
 class RefundArgs(BookingIdArgs):
-    cancel_at: str | None = Field(None, description="For an upcoming booking: hypothetical cancellation time "
-                                                    "in IST, 'YYYY-MM-DD HH:MM'. Omit for 'now'.")
+    cancel_at: str | None = Field(None, description="Hypothetical cancellation time in IST 'YYYY-MM-DD HH:MM': "
+                                                    "'if I cancel at …' for an upcoming booking, or 'what if I had "
+                                                    "cancelled at …' for a cancelled/no-show booking. Omit for the "
+                                                    "actual outcome (or 'now' for an upcoming booking).")
 
 
 def t_refund_quote(session: Session, a: RefundArgs) -> dict:
