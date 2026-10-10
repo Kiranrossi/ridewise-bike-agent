@@ -260,6 +260,7 @@ a booking that doesn't exist.
 ├── Data/                       Provided pack: ridewise.db, data_dictionary.md, 5 PDFs (unmodified)
 ├── .streamlit/config.toml      Theme and settings
 ├── .env.example                Environment template (no secrets)
+├── DECISIONS.md                Key design decisions, rejected alternatives, limitations, next steps
 ├── PLAN.md                     Build plan and checklist
 └── requirements.txt            Pinned dependencies
 ```
