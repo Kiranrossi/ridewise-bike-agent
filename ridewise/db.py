@@ -251,13 +251,15 @@ class AgentData:
 
     def damage_reports(self, claim_status: str | None = None, category: str | None = None,
                        severity: str | None = None, hub: str | None = None,
-                       customer_id: str | None = None, limit: int = 50) -> list[dict]:
+                       customer_id: str | None = None, report_id: str | None = None,
+                       booking_id: str | None = None, limit: int = 50) -> list[dict]:
         where, params = [], []
         for col, val in (("d.claim_status", claim_status), ("d.damage_category", category),
-                         ("d.severity", severity), ("b.customer_id", customer_id)):
+                         ("d.severity", severity), ("b.customer_id", customer_id),
+                         ("d.report_id", report_id), ("d.booking_id", booking_id)):
             if val:
                 where.append(f"{col} = ?")
-                params.append(val.upper() if col != "b.customer_id" else val)
+                params.append(val.upper())
         if hub:
             canonical = load_rules().aliases.hub(hub)
             if canonical is None:
