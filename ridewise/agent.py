@@ -47,8 +47,10 @@ class Reply:
 class Agent:
     def __init__(self, session: Session, client: OpenAI | None = None):
         self.session = session
-        self.client = client or OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key,
-                                       timeout=settings.llm_timeout, max_retries=0)
+        if client is None and settings.llm_api_key and settings.llm_base_url:
+            client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key,
+                            timeout=settings.llm_timeout, max_retries=0)
+        self.client = client                         # None → deterministic fallback only
         self.tools = tools_for(session.role)
         self.recent_bookings: list[str] = []        # conversational memory of booking IDs
         self.last_tool_results: str = ""            # previous turn's tool outputs, for follow-ups
@@ -84,6 +86,9 @@ class Agent:
         if not user_message:
             return Reply("Please type a question.")
         trace: list[dict] = []
+        if self.client is None:
+            text, sources, fb_trace = fallback.respond(self.session, user_message)
+            return Reply(text, sources, fb_trace, degraded=True, seconds=round(time.monotonic() - t0, 1))
         try:
             messages = [{"role": "system", "content": build_system_prompt(self.session, self.recent_bookings)}]
             messages += [{"role": m["role"], "content": m["content"]} for m in history[-HISTORY_MESSAGES:]

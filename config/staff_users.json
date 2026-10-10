@@ -1,0 +1,20 @@
+{
+  "users": [
+    {
+      "staff_id": "agent01",
+      "name": "Priya Menon",
+      "team": "Support Desk",
+      "salt": "877dbc12a6f5959e1e40e9c31b4469cf",
+      "hash": "ba72dc99d7b83a71d3ce8051b3b2638f81c5d56f00377e148e5359868bcf5785",
+      "iterations": 200000
+    },
+    {
+      "staff_id": "hubops01",
+      "name": "Arjun Rao",
+      "team": "Hub Operations",
+      "salt": "ab4d1134a4c7777d8171b57d13e4daea",
+      "hash": "89c24adceef964e45c5c1035f1b74d511cd4f5fdaf45314fed1fcdea8b634076",
+      "iterations": 200000
+    }
+  ]
+}
