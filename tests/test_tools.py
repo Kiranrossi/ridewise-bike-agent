@@ -37,7 +37,8 @@ def test_schemas_are_valid_openai_tools():
 @pytest.mark.parametrize("tool", sorted(AGENT_ONLY))
 def test_customer_cannot_call_agent_tools_even_if_requested(tool):
     r = execute(Session("customer", "CUST0001"), tool, {"sql": "select 1", "query": "x", "customer_id": "CUST0002"})
-    assert r == {"ok": False, "error": f"The tool '{tool}' is not available."}
+    assert r["ok"] is False and r["error"] == f"The tool '{tool}' is not available."
+    assert r["queries"] == []                                   # nothing was executed
 
 
 def test_unknown_tool():
@@ -47,7 +48,7 @@ def test_unknown_tool():
 def test_foreign_booking_not_found_for_customer():
     for tool in ("get_booking_details", "refund_quote", "explain_charges"):
         r = execute(Session("customer", "CUST0001"), tool, {"booking_id": "B-0412"})
-        assert r == {"ok": False, "error": "No booking B-0412 was found on your account."}
+        assert r["ok"] is False and r["error"] == "No booking B-0412 was found on your account."
 
 
 def test_agent_can_open_any_booking():

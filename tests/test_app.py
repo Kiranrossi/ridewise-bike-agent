@@ -6,7 +6,8 @@ from ridewise import auth
 from ridewise.config import ROOT
 
 
-def test_customer_login_demo_mode():
+def test_customer_login_demo_mode(monkeypatch):
+    monkeypatch.setattr(auth, "settings", type("S", (), {"auth_mode": "demo"})())
     assert auth.login_customer("cust1").user_id == "CUST0001"
     assert auth.login_customer("CUST9999").error == auth.GENERIC_FAILURE
     for junk in ("' OR 1=1 --", "abc12", "B-0011", "CUST00011"):
@@ -36,6 +37,12 @@ def app():
 DEBUG_ELEMENTS = {"help_info", "json", "exception"}
 
 
+def customer_login(at, customer_id, password):
+    at.text_input[0].input(customer_id)
+    at.text_input[1].input(password)
+    at.button[1].click().run()
+
+
 def _element_types(at) -> set[str]:
     def walk(node):
         yield node.type
@@ -47,27 +54,36 @@ def _element_types(at) -> set[str]:
 def test_no_stray_debug_output_on_any_page(app):
     """Regression: a bare tuple in warm_up() was rendered by Streamlit magic as object docs."""
     assert not _element_types(app) & DEBUG_ELEMENTS
-    app.text_input[0].input("CUST0001")
-    app.button[1].click().run()
+    customer_login(app, "CUST0001", "9845012345")
+    assert app.session_state.user is not None
     assert not _element_types(app) & DEBUG_ELEMENTS
 
 
 def test_login_page_defaults_to_customer(app):
     assert not app.exception
-    assert [t.label for t in app.text_input] == ["Customer ID"]
+    assert [t.label for t in app.text_input] == ["Customer ID", "Password"]
+    assert app.text_input[1].proto.type == app.text_input[1].proto.PASSWORD   # masked input
     assert app.button[0].label == "Support staff sign-in"
 
 
+def test_customer_needs_correct_phone_as_password(app):
+    customer_login(app, "CUST0001", "9999999999")
+    assert app.session_state.user is None and app.error[0].value == auth.GENERIC_FAILURE
+    customer_login(app, "CUST0001", "")
+    assert app.session_state.user is None
+    customer_login(app, "CUST0001", "98450 12345")                 # spaces are fine
+    assert app.session_state.user["id"] == "CUST0001"
+
+
 def test_customer_flow_new_chat_and_sign_out(app):
-    app.text_input[0].input("CUST0001")
-    app.button[1].click().run()
+    customer_login(app, "CUST0001", "9845012345")
     assert not app.exception and app.session_state.user["id"] == "CUST0001"
     assert app.session_state.agent.session.customer_id == "CUST0001"
     app.session_state.messages = [{"role": "user", "content": "hi"}]
     next(b for b in app.sidebar.button if b.label == "New chat").click().run()
     assert app.session_state.messages == []
     next(b for b in app.sidebar.button if b.label == "Sign out").click().run()
-    assert app.session_state.user is None and [t.label for t in app.text_input] == ["Customer ID"]
+    assert app.session_state.user is None and [t.label for t in app.text_input] == ["Customer ID", "Password"]
 
 
 def test_staff_flow(app):
@@ -82,9 +98,7 @@ def test_staff_flow(app):
 
 def test_login_lockout_after_repeated_failures(app):
     for _ in range(auth.MAX_ATTEMPTS):
-        app.text_input[0].input("CUST9999")
-        app.button[1].click().run()
-    app.text_input[0].input("CUST0001")
-    app.button[1].click().run()
+        customer_login(app, "CUST0001", "0000000000")
+    customer_login(app, "CUST0001", "9845012345")                  # correct, but locked out
     assert app.session_state.user is None
     assert any("Too many attempts" in e.value for e in app.error)

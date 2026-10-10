@@ -123,4 +123,4 @@ def t_run_readonly_sql(session: Session, a: SqlArgs) -> dict:
         r = db.run_readonly_sql(a.sql)
     except db.SqlRejected as e:
         raise ToolError(str(e)) from e
-    return r | {"sources": ["SQL: " + r["sql"]]}
+    return r | {"sources": ["Read-only analytics query on ridewise.db (SQL shown under How I got this)"]}

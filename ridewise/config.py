@@ -26,7 +26,7 @@ class Settings:
     db_path: Path = _path(os.getenv("DB_PATH", "Data/ridewise.db"))
     index_path: Path = _path(os.getenv("INDEX_PATH", "index"))
     rules_dir: Path = ROOT / "rules"
-    auth_mode: str = os.getenv("AUTH_MODE", "demo")
+    auth_mode: str = os.getenv("AUTH_MODE", "strict")
 
 
 settings = Settings()

@@ -5,6 +5,7 @@ Run: streamlit run app.py
 from __future__ import annotations
 
 import html
+import re
 import json
 import time
 import uuid
@@ -209,7 +210,9 @@ def login_page() -> None:
                 strict = settings.auth_mode == "strict"
                 with st.form("customer_login"):
                     cid = st.text_input("Customer ID", placeholder="e.g. CUST0001")
-                    phone = st.text_input("Registered mobile number", placeholder="10-digit number") if strict else None
+                    phone = (st.text_input("Password", type="password", placeholder="Your registered mobile number",
+                                           help="Your password is the 10-digit mobile number registered "
+                                                "with RideWise.") if strict else None)
                     go = st.form_submit_button("Continue", type="primary", width="stretch")
                 if not strict:
                     st.caption("Demo mode: sign in with your customer ID only.")
@@ -288,6 +291,19 @@ def _step_detail(step: dict) -> str:
     return html.escape(", ".join(f"{k}={v}" for k, v in args.items()) or "—")
 
 
+_SQL_BREAKS = re.compile(r"\s+(FROM|LEFT JOIN|JOIN|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT|UNION ALL)\b",
+                         re.IGNORECASE)
+
+
+def pretty_sql(sql: str) -> str:
+    """Put each main clause on its own line (display only; the text stays valid SQL)."""
+    if "CASE lower(trim(" in sql:          # long portable CASE expressions read better unbroken
+        return sql
+    parts = sql.split("'")                 # even indexes are outside string literals ('' escapes stay paired)
+    return "'".join(_SQL_BREAKS.sub(lambda m: "\n" + m.group(1).upper(), p) if i % 2 == 0 else p
+                    for i, p in enumerate(parts))
+
+
 def _calc_steps(step: dict) -> list[str]:
     res = step.get("result") or {}
     if step["tool"] == "refund_quote":
@@ -323,8 +339,13 @@ def render_details(msg: dict, is_agent: bool) -> None:
                             f'<div class="d">{_step_detail(step)}{ms}</div></div>', unsafe_allow_html=True)
                 for line in _calc_steps(step):
                     st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• {line}")
-                if is_agent and step["tool"] == "run_readonly_sql" and step.get("args", {}).get("sql"):
-                    st.code(step["args"]["sql"], language="sql")
+                for q in (step.get("result") or {}).get("queries") or []:
+                    st.markdown(f'<div class="rw-meta">SQL run · {q["rows"]} row(s) returned</div>',
+                                unsafe_allow_html=True)
+                    st.code(pretty_sql(q["sql"]), language="sql")
+            if any((s.get("result") or {}).get("queries") for s in trace):
+                st.caption("Paste any query above into DB Browser for SQLite → Execute SQL to see the same rows. "
+                           "The database stores times in UTC (answers show IST) and amounts excluding GST.")
             if is_agent and st.toggle("Show raw tool data", key=f"raw_{id(msg)}_{len(trace)}"):
                 st.json(json.loads(json.dumps(trace, default=str)), expanded=False)
 

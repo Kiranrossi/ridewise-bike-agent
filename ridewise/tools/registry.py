@@ -17,6 +17,7 @@ from typing import Callable
 from pydantic import ValidationError
 
 from ridewise.config import ROOT
+from ridewise.db import record_queries
 from ridewise.rules import load_rules
 from ridewise.tools import agent_tools as ag
 from ridewise.tools import customer_tools as cu
@@ -124,6 +125,7 @@ def execute(session: Session, name: str, arguments: str | dict | None) -> dict:
     """Run a tool call from the LLM. Always returns a JSON-serialisable dict, never raises."""
     t0 = time.monotonic()
     args: dict = {}
+    queries: list[dict] = []
     try:
         if name not in TOOLS or name not in allowed(session.role):
             raise ToolError(f"The tool '{name}' is not available.")
@@ -132,8 +134,10 @@ def execute(session: Session, name: str, arguments: str | dict | None) -> dict:
         else:
             args = dict(arguments or {})
         tool = TOOLS[name]
-        result = tool.handler(session, tool.args.model_validate(args))
-        out = {"ok": True, **result}
+        with record_queries() as queries:
+            result = tool.handler(session, tool.args.model_validate(args))
+        # 'queries' = exact SQL run (parameters inlined) for the UI; stripped before reaching the LLM.
+        out = {"ok": True, **result, "queries": queries}
         _audit(session, name, args, True, int((time.monotonic() - t0) * 1000), None)
         return out
     except ValidationError as e:
@@ -147,4 +151,4 @@ def execute(session: Session, name: str, arguments: str | dict | None) -> dict:
         log.exception("tool %s failed", name)
         err = "The tool failed unexpectedly. Please try again or rephrase."
     _audit(session, name, args, False, int((time.monotonic() - t0) * 1000), err)
-    return {"ok": False, "error": err}
+    return {"ok": False, "error": err, "queries": queries}

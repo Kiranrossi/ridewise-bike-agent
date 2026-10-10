@@ -125,7 +125,8 @@ class Agent:
                     trace.append({"tool": tc.function.name, "args": args, "ok": result.get("ok"),
                                   "ms": int((time.monotonic() - s) * 1000), "result": result})
                     self._remember(json.dumps(args))
-                    content = json.dumps(result, ensure_ascii=False, default=str)
+                    model_view = {k: v for k, v in result.items() if k != "queries"}   # SQL is for the UI only
+                    content = json.dumps(model_view, ensure_ascii=False, default=str)
                     if len(content) > MAX_TOOL_RESULT_CHARS:
                         content = content[:MAX_TOOL_RESULT_CHARS] + '…(truncated; narrow the request)"}'
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
@@ -138,7 +139,8 @@ class Agent:
             self._remember(user_message, answer)
             if trace:
                 self.last_tool_results = json.dumps(
-                    [{"tool": t["tool"], "args": t["args"], "result": t["result"]} for t in trace],
+                    [{"tool": t["tool"], "args": t["args"],
+                      "result": {k: v for k, v in t["result"].items() if k != "queries"}} for t in trace],
                     ensure_ascii=False, default=str)[:MEMORY_CHARS]
             sources = _sources(trace)
             if not sources and self.session.role == "customer":

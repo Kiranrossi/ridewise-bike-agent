@@ -12,7 +12,8 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from contextlib import closing
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from ridewise.config import settings
@@ -45,13 +46,61 @@ def connect() -> sqlite3.Connection:
     return con
 
 
-def _rows(sql: str, params: tuple = ()) -> list[dict]:
+# ---------------------------------------------------------------- query transparency
+# Every data query run while a tool executes is recorded with its parameters inlined, so the
+# exact SQL can be shown in the UI and pasted into DB Browser for SQLite to reproduce the rows.
+
+_query_log: ContextVar[list | None] = ContextVar("query_log", default=None)
+
+
+def _literal(value: Any) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def inline_sql(sql: str, params: tuple | list = ()) -> str:
+    """SQL with '?' placeholders replaced by literals (display only; execution stays parameterised)."""
+    parts = sql.split("?")
+    if len(parts) - 1 != len(params):
+        return sql
+    out = parts[0]
+    for value, part in zip(params, parts[1:]):
+        out += _literal(value) + part
+    return re.sub(r"\s+", " ", out).strip().rstrip(";") + ";"
+
+
+@contextmanager
+def record_queries():
+    """Collect the SQL executed inside the block: yields a list of {'sql', 'rows'}."""
+    log: list[dict] = []
+    token = _query_log.set(log)
+    try:
+        yield log
+    finally:
+        _query_log.reset(token)
+
+
+def _record(sql: str, params: tuple, n: int) -> None:
+    log = _query_log.get()
+    if log is not None:
+        log.append({"sql": inline_sql(sql, params), "rows": n})
+
+
+def _rows(sql: str, params: tuple = (), record: bool = True) -> list[dict]:
     with closing(connect()) as con:
-        return [dict(r) for r in con.execute(sql, params)]
+        rows = [dict(r) for r in con.execute(sql, params)]
+    if record:
+        _record(sql, params, len(rows))
+    return rows
 
 
-def _one(sql: str, params: tuple = ()) -> dict | None:
-    rows = _rows(sql, params)
+def _one(sql: str, params: tuple = (), record: bool = True) -> dict | None:
+    rows = _rows(sql, params, record)
     return rows[0] if rows else None
 
 
@@ -60,39 +109,46 @@ def _one(sql: str, params: tuple = ()) -> dict | None:
 def customer_exists(customer_id: str) -> bool:
     if not CUSTOMER_ID_RE.match(customer_id or ""):
         return False
-    return _one("SELECT 1 FROM customers WHERE customer_id = ?", (customer_id,)) is not None
+    return _one("SELECT 1 FROM customers WHERE customer_id = ?", (customer_id,), record=False) is not None
 
 
 def customer_phone_matches(customer_id: str, phone: str) -> bool:
-    row = _one("SELECT phone FROM customers WHERE customer_id = ?", (customer_id,))
+    row = _one("SELECT phone FROM customers WHERE customer_id = ?", (customer_id,), record=False)
     return bool(row) and re.sub(r"\D", "", phone or "")[-10:] == row["phone"]
+
+
+PAYMENT_TOTALS_SQL = """SELECT payment_type, payment_status, COUNT(*) AS n,
+       ROUND(SUM(amount), 2) AS amount, ROUND(SUM(gst_amount), 2) AS gst
+FROM payments WHERE booking_id = ? GROUP BY payment_type, payment_status"""
 
 
 def payment_summary(booking_id: str) -> dict:
     """Payments for one booking with totals that follow RideWise payment semantics:
     only SUCCESS rows count as money moved; FAILED attempts are never charged;
-    refunds are stored as negative amounts; instalments are summed."""
+    refunds are stored as negative amounts; instalments are summed.
+    Totals come from a SQL GROUP BY so they can be reproduced in any SQLite client."""
     rows = _rows(
         """SELECT payment_id, payment_type, amount, gst_amount, payment_method,
                   payment_status, paid_at, remarks
            FROM payments WHERE booking_id = ? ORDER BY paid_at""",
         (booking_id,),
     )
+    totals = {(t["payment_type"], t["payment_status"]): t for t in _rows(PAYMENT_TOTALS_SQL, (booking_id,))}
 
     def total(ptype: str, status: str, field: str = "amount") -> float:
-        return round(sum(r[field] for r in rows if r["payment_type"] == ptype and r["payment_status"] == status), 2)
+        return round((totals.get((ptype, status)) or {}).get(field) or 0.0, 2)
 
     for r in rows:
         r["remarks"] = wrap_untrusted(r["remarks"]) if r["remarks"] else None
     return {
         "payments": rows,
         "rental_paid": total("BOOKING", "SUCCESS"),
-        "rental_gst_paid": total("BOOKING", "SUCCESS", "gst_amount"),
+        "rental_gst_paid": total("BOOKING", "SUCCESS", "gst"),
         "rental_pending": total("BOOKING", "PENDING"),
         "refunded": -total("REFUND", "SUCCESS"),
-        "refund_gst": -total("REFUND", "SUCCESS", "gst_amount"),
+        "refund_gst": -total("REFUND", "SUCCESS", "gst"),
         "penalties_paid": total("PENALTY", "SUCCESS"),
-        "penalties_gst_paid": total("PENALTY", "SUCCESS", "gst_amount"),
+        "penalties_gst_paid": total("PENALTY", "SUCCESS", "gst"),
         "penalties_pending": total("PENALTY", "PENDING"),
         "deposit_paid": total("DEPOSIT", "SUCCESS"),
         "deposit_pending": total("DEPOSIT", "PENDING"),
@@ -308,6 +364,23 @@ def _authorizer(allowed_tables: set[str], blocked: dict[str, set[str]]):
     return check
 
 
+def _case_expr(arg: str, groups: dict[str, list[str]]) -> str:
+    whens = " ".join(f"WHEN {_literal(alias)} THEN {_literal(canonical)}"
+                     for canonical, names in groups.items()
+                     for alias in sorted({n.lower() for n in (canonical, *names)}))
+    return f"(CASE lower(trim({arg})) {whens} ELSE trim({arg}) END)"
+
+
+def portable_sql(sql: str) -> str:
+    """Replace the app-only norm_city()/norm_hub() functions with equivalent CASE expressions,
+    so the query runs unchanged in DB Browser for SQLite or the sqlite3 CLI."""
+    aliases = load_rules().aliases
+    for fn, groups in (("norm_city", aliases.cities), ("norm_hub", aliases.hubs)):
+        sql = re.sub(rf"\b{fn}\s*\(([^()]*)\)", lambda m: _case_expr(m.group(1).strip(), groups),
+                     sql, flags=re.IGNORECASE)
+    return sql.rstrip().rstrip(";") + ";"
+
+
 def run_readonly_sql(sql: str) -> dict:
     """Execute one SELECT for a support agent, with PII columns returned as NULL."""
     rules = load_rules()
@@ -345,6 +418,7 @@ def run_readonly_sql(sql: str) -> dict:
     restricted = [c for c in columns if c.lower() in blocked_names]
     data = [[("[restricted]" if (v is None and columns[i] in restricted) else v)
              for i, v in enumerate(r)] for r in rows[: policy.max_rows]]
+    _record(portable_sql(body), (), len(data))
     return {
         "sql": body,
         "columns": columns,
