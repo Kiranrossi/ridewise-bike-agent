@@ -78,7 +78,7 @@ streamlit run app.py
 
 Open **http://localhost:8501** and sign in with one of the [demo logins](#demo-logins).
 
-On the **first run** the app downloads the embedding models (~150 MB, once) and builds the policy search
+On the **first run** the app downloads the embedding models (~65 MB, once) and builds the policy search
 index (~10 s). Later runs start immediately. To build the index ahead of time:
 `python -m ridewise.ingest`.
 
