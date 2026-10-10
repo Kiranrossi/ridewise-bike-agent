@@ -16,8 +16,9 @@ import openai
 from openai import OpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from ridewise import fallback
+from ridewise import fallback, sources
 from ridewise.config import settings
+from ridewise.db import record_queries
 from ridewise.prompts import build_system_prompt
 from ridewise.tools.base import Session
 from ridewise.tools.registry import execute, tools_for
@@ -38,7 +39,7 @@ BOOKING_RE = re.compile(r"\bB-\d{4}\b")
 @dataclass
 class Reply:
     answer: str
-    sources: list[str] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)     # typed citations (see sources.py)
     trace: list[dict] = field(default_factory=list)
     degraded: bool = False
     seconds: float = 0.0
@@ -87,10 +88,12 @@ class Agent:
             return Reply("Please type a question.")
         trace: list[dict] = []
         if self.client is None:
-            text, sources, fb_trace = fallback.respond(self.session, user_message)
-            return Reply(text, sources, fb_trace, degraded=True, seconds=round(time.monotonic() - t0, 1))
+            return self._fallback(user_message, trace, t0)
         try:
-            messages = [{"role": "system", "content": build_system_prompt(self.session, self.recent_bookings)}]
+            with record_queries() as snapshot_queries:
+                system_prompt = build_system_prompt(self.session, self.recent_bookings)
+            snapshot_ids = _snapshot_booking_ids(system_prompt)
+            messages = [{"role": "system", "content": system_prompt}]
             messages += [{"role": m["role"], "content": m["content"]} for m in history[-HISTORY_MESSAGES:]
                          if m.get("role") in ("user", "assistant") and m.get("content")]
             if history and self.last_tool_results:
@@ -142,20 +145,30 @@ class Agent:
                     [{"tool": t["tool"], "args": t["args"],
                       "result": {k: v for k, v in t["result"].items() if k != "queries"}} for t in trace],
                     ensure_ascii=False, default=str)[:MEMORY_CHARS]
-            sources = _sources(trace)
-            if not sources and self.session.role == "customer":
-                sources = ["Account snapshot (your records)"]
-            return Reply(answer, sources, trace, seconds=round(time.monotonic() - t0, 1))
+            # Booking facts quoted from the pre-fetched account snapshot (no tool call) are cited too,
+            # with the snapshot's SQL; answers that used no data (refusals, greetings) cite nothing.
+            from_tools = {s.split()[-1] for s in _raw_sources(trace) if s.startswith("booking ")}
+            from_snapshot = sorted((set(BOOKING_RE.findall(answer)) & snapshot_ids) - from_tools)
+            if from_snapshot:
+                trace.append({"tool": "account_snapshot", "args": {}, "ok": True, "ms": 0,
+                              "result": {"ok": True, "sources": [f"booking {b}" for b in from_snapshot],
+                                         "queries": snapshot_queries}})
+            return Reply(answer, self._cite(_raw_sources(trace)), trace, seconds=round(time.monotonic() - t0, 1))
         except openai.BadRequestError as e:
             if "content_filter" in str(e):
                 return self._blocked(trace, t0)
             log.warning("LLM rejected the request, using fallback: %s", str(e)[:200])
-            text, sources, fb_trace = fallback.respond(self.session, user_message)
-            return Reply(text, sources, trace + fb_trace, degraded=True, seconds=round(time.monotonic() - t0, 1))
+            return self._fallback(user_message, trace, t0)
         except (*RETRYABLE, openai.APIStatusError, TimeoutError) as e:
             log.warning("LLM unavailable, using fallback: %s", type(e).__name__)
-            text, sources, fb_trace = fallback.respond(self.session, user_message)
-            return Reply(text, sources, trace + fb_trace, degraded=True, seconds=round(time.monotonic() - t0, 1))
+            return self._fallback(user_message, trace, t0)
+
+    def _cite(self, raw: list[str]) -> list[dict]:
+        return sources.normalise(raw, self.session.customer_id)
+
+    def _fallback(self, user_message: str, trace: list[dict], t0: float) -> Reply:
+        text, raw, fb_trace = fallback.respond(self.session, user_message)
+        return Reply(text, self._cite(raw), trace + fb_trace, degraded=True, seconds=round(time.monotonic() - t0, 1))
 
 
 _NATIVE_CITATION_RE = re.compile(r"【[^】}\n]*[】}]?")
@@ -169,10 +182,18 @@ def _clean(text: str | None) -> str:
     return re.sub(r"[ \t]+\n", "\n", text).strip()
 
 
-def _sources(trace: list[dict]) -> list[str]:
+def _raw_sources(trace: list[dict]) -> list[str]:
     seen: list[str] = []
     for step in trace:
         for s in (step["result"].get("sources") or []) if step.get("ok") else []:
             if s not in seen:
                 seen.append(s)
     return seen
+
+
+def _snapshot_booking_ids(system_prompt: str) -> set[str]:
+    """Booking IDs listed in the account snapshot section of the system prompt."""
+    if "## Account snapshot" not in system_prompt:
+        return set()
+    section = system_prompt.split("## Account snapshot", 1)[1].split("Bookings discussed earlier", 1)[0]
+    return set(BOOKING_RE.findall(section))

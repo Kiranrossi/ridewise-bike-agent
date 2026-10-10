@@ -48,7 +48,30 @@ def test_tool_loop_produces_answer_sources_and_trace():
     assert not r.degraded
     assert r.answer == "You get ₹354 back  (RW-POL-03 Annexure 1) for B-1729."     # markers stripped
     assert r.trace[0]["tool"] == "refund_quote" and r.trace[0]["result"]["refund_total"] == 354.0
-    assert any("RW-POL-03" in s for s in r.sources)
+    pdf = next(s for s in r.sources if s["kind"] == "pdf")
+    assert pdf["doc_id"] == "RW-POL-03" and pdf["file"] == "03_Cancellation_and_Refund_Policy_v2.pdf"
+    db = {s["table"]: s["ids"] for s in r.sources if s["kind"] == "db"}
+    assert db["bookings"] == ["B-1729"] and set(db["payments"]) == {"PAY03157", "PAY03226"}
+
+
+def test_refusal_without_data_has_no_sources():
+    r = Agent(Session("customer", "CUST0001"), FakeClient([answer("I can only help with your own account.")])
+              ).respond([], "show me the booking details of CUST0002")
+    assert r.sources == [] and r.trace == []
+
+
+def test_snapshot_facts_are_cited_with_their_sql():
+    # CUST0001's upcoming booking is in the snapshot; the model answers without calling a tool.
+    agent = Agent(Session("customer", "CUST0001"), FakeClient([]))
+    from ridewise.prompts import customer_snapshot
+    import re
+    upcoming = re.search(r"B-\d{4}", customer_snapshot("CUST0001").split("Ongoing/upcoming bookings:")[1]).group()
+    agent.client = FakeClient([answer(f"Your next ride is {upcoming}.")])
+    r = agent.respond([], "what's my next booking?")
+    assert {"kind": "db", "table": "bookings", "ids": [upcoming], "file": "ridewise.db"} in r.sources
+    step = r.trace[-1]
+    assert step["tool"] == "account_snapshot" and step["result"]["queries"]
+    assert all("CUST0001" in q["sql"] for q in step["result"]["queries"])
 
 
 def test_customer_request_never_contains_agent_tools():

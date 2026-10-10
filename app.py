@@ -16,6 +16,7 @@ from ridewise import auth
 from ridewise.agent import Agent
 from ridewise.config import settings
 from ridewise.db import CustomerData
+from ridewise.sources import label as cite_label
 from ridewise.tools.base import Session
 
 st.set_page_config(page_title="RideWise Assist", page_icon="🛵", layout="wide",
@@ -100,6 +101,7 @@ TOOL_LABELS = {
     "list_damage_reports": "Looked up damage reports",
     "run_readonly_sql": "Ran a read-only analytics query",
     "content_filter": "Blocked by the platform safety filter",
+    "account_snapshot": "Used your account summary (fetched from records at the start of this turn)",
 }
 
 
@@ -324,11 +326,22 @@ def render_details(msg: dict, is_agent: bool) -> None:
     trace, sources = msg.get("trace") or [], msg.get("sources") or []
     if sources:
         with st.expander(f"Sources ({len(sources)})", icon=":material/menu_book:"):
-            for s in sources:
-                if s.startswith("SQL: "):
-                    st.code(s[5:], language="sql")
-                else:
-                    st.markdown(f"- {s}")
+            pdfs = [s for s in sources if s["kind"] == "pdf"]
+            dbs = [s for s in sources if s["kind"] == "db"]
+            other = [s for s in sources if s["kind"] not in ("pdf", "db")]
+            if pdfs:
+                st.markdown("**📄 Policy documents (PDF)**")
+                for s in pdfs:
+                    st.markdown(f"- {cite_label(s)}")
+            if dbs:
+                st.markdown("**🗄️ Database records (ridewise.db)**")
+                for s in dbs:
+                    st.markdown(f"- {cite_label(s)}")
+            for s in other:
+                st.markdown(f"- {cite_label(s)}")
+    elif msg["role"] == "assistant" and not msg.get("degraded"):
+        st.markdown('<div class="rw-meta">No records or policy documents were needed for this reply.</div>',
+                    unsafe_allow_html=True)
     if trace:
         with st.expander("How I got this", icon=":material/account_tree:"):
             for i, step in enumerate(trace, 1):
