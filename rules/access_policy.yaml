@@ -1,0 +1,52 @@
+# Who can do what. Enforced in code (tool registry, data layer, SQL authorizer);
+# the LLM only ever sees the tools allowed for the session's role.
+
+roles:
+  customer:
+    description: "Registered customer; identity comes from the login session only"
+    data_scope: own_records          # every query is filtered by the session customer_id
+    tools:
+      - search_policy
+      - get_vehicle_catalog
+      - quote_rental
+      - get_my_profile
+      - list_my_bookings
+      - get_booking_details
+      - refund_quote
+      - explain_charges
+  agent:
+    description: "RideWise support / hub operations staff"
+    data_scope: all_records_pii_masked
+    tools:
+      - search_policy
+      - get_vehicle_catalog
+      - quote_rental
+      - get_booking_details
+      - refund_quote
+      - explain_charges
+      - find_customer
+      - get_customer
+      - list_damage_reports
+      - run_readonly_sql
+
+pii:
+  columns:
+    customers: [phone, email, driving_license_no, date_of_birth]
+  masking:
+    phone: last4          # ******2345
+    email: first_char     # a***@gmail.com
+    driving_license_no: edges   # KA01********345
+    date_of_birth: hidden
+
+free_text:          # scrubbed for emails/phones and wrapped as untrusted data
+  - payments.remarks
+  - damage_reports.description
+
+sql:                # agent-only guarded read-only SQL
+  allowed_tables: [customers, vehicles, bookings, payments, damage_reports]
+  blocked_columns:  # returned as NULL by the SQLite authorizer
+    customers: [phone, email, driving_license_no, date_of_birth]
+    payments: [remarks, transaction_ref]
+    damage_reports: [description]
+  max_rows: 200
+  timeout_seconds: 3

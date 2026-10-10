@@ -1,0 +1,42 @@
+# Late return, EV low-battery and damage charges (RW-POL-04 v2.1, RW-POL-05).
+# All penalties attract GST (see pricing.yaml).
+
+late_return:
+  measured_from: scheduled_end
+  measured_to: actual_return_at
+  rate_multiplier: 1.5               # × vehicle hourly rate (from DB)
+  rounding: ceil_hour                # each late hour or part-hour counts as a full hour
+  grace_minutes_by_tier:
+    STANDARD: 0
+    SILVER: 0
+    GOLD: 30
+  grace_inclusive: true              # GOLD up to and including 30 min late → no fee
+  beyond_grace: full_lateness        # grace does NOT reduce lateness once exceeded
+  source: "RW-POL-04 §1.1–1.3; Annexure A (scanned), p.3"
+  worked_examples:                   # hourly ₹100, no grace (RW-POL-04 §1.4)
+    - {minutes_late: 5, hours_charged: 1, fee: 150}
+    - {minutes_late: 59, hours_charged: 1, fee: 150}
+    - {minutes_late: 61, hours_charged: 2, fee: 300}
+    - {minutes_late: 180, hours_charged: 3, fee: 450}
+    - {minutes_late: 195, hours_charged: 4, fee: 600}
+
+low_battery:
+  applies_to: [EV_SCOOTER, EV_BIKE]
+  fee_if_below_pct: 10               # strictly below; exactly 10% → no fee
+  fee: 150                           # flat, per rental
+  stacks_with_late_fee: true
+  bands:
+    - {name: RED, from_pct: 0, to_pct: 9, note: "₹150 low-battery charging fee applies"}
+    - {name: AMBER, from_pct: 10, to_pct: 19, note: "No fee, but please charge before your next trip"}
+    - {name: GREEN, from_pct: 20, to_pct: 100, note: "Ideal return level"}
+  source: "RW-POL-04 §2; RW-POL-05 Figure 2 (image), p.2"
+
+damage:
+  claim_status:
+    OPEN: {charged: false, meaning: "Damage reported; assessment or review in progress"}
+    CHARGED: {charged: true, meaning: "Assessed cost confirmed and charged"}
+    DISPUTED: {charged: false, meaning: "Customer has disputed the claim; not charged until resolved"}
+    WAIVED: {charged: false, meaning: "RideWise has decided not to charge"}
+  charge_basis: assessed_cost
+  lost_key: "Treated as damage, charged at the cost of replacement"
+  source: "RW-POL-04 §3.1–3.2"

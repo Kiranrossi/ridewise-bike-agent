@@ -1,0 +1,49 @@
+# Cancellation & refund rules (RW-POL-02 v1, RW-POL-03 v2).
+# The version is decided by WHEN THE BOOKING WAS MADE (bookings.booked_at),
+# not by when it was cancelled or when the rental starts. Cutoff is in IST.
+
+version_selector: booked_at
+
+versions:
+  - id: v1
+    doc_id: RW-POL-02
+    effective_from: "2025-01-01T00:00:00+05:30"
+    effective_to: "2026-07-01T00:00:00+05:30"     # exclusive
+    # Slabs are evaluated top-down; first slab with hours_before >= min_hours_before wins.
+    slabs:
+      - {min_hours_before: 24, refund_pct: 100}
+      - {min_hours_before: 6, refund_pct: 50}
+      - {min_hours_before: 0, refund_pct: 0}
+    source: "RW-POL-02 §1.1, p.1"
+
+  - id: v2
+    doc_id: RW-POL-03
+    effective_from: "2026-07-01T00:00:00+05:30"
+    effective_to: null
+    slabs:
+      - {min_hours_before: 48, refund_pct: 100}
+      - {min_hours_before: 12, refund_pct: 75}
+      - {min_hours_before: 2, refund_pct: 25}
+      - {min_hours_before: 0, refund_pct: 0}
+    source: "RW-POL-03 Annexure 1 (scanned signed copy), p.2"
+
+common:
+  customer_can_cancel_until: scheduled_start        # cancellation only before scheduled pickup
+  refund_base: rental_charge_actually_paid          # successful BOOKING payments only
+  gst_refunded_proportionally: true
+  cancelled_by_ridewise_pct: 100                    # CNL_S, any timing, any version
+  no_show_pct: 0                                    # NSH is not a cancellation
+  deposit_on_cancellation: returned_in_full         # not subject to the refund schedule
+  processing:
+    initiated_within_working_days: 3
+    credited_within_working_days: "5 to 7"
+    credited_to: original_payment_method
+  sources:
+    cancelled_by_ridewise: "RW-POL-02 §2.1; RW-POL-03 §2.1"
+    no_show: "RW-POL-02 §3.1; RW-POL-03 §3.1; RW-POL-01 §7"
+    processing: "RW-POL-02 §4.1; RW-POL-03 §4.1"
+    gst: "RW-POL-02 §1.2; RW-POL-03 §1.2; RW-POL-01 §4.3"
+    deposit: "RW-POL-02 §4.2; RW-POL-03 §4.1"
+
+worked_examples:     # reproduced from the PDFs, used by tests
+  - {version: v1, hours_before: 12, paid: 500, refund: 250, gst_refund: 45, source: "RW-POL-02 §5"}

@@ -1,0 +1,49 @@
+# Registry of the policy documents. Drives ingestion, citations and version filters.
+# To add a new policy version: add an entry here, drop the PDF in Data/, re-run ingestion.
+
+documents:
+  - doc_id: RW-POL-01
+    file: Data/01_Rental_Agreement_and_Terms.pdf
+    title: Rental Agreement & Terms
+    version: "3.0"
+    effective_from: "2025-01-01T00:00:00+05:30"
+    topics: [eligibility, kyc, hubs, rental_charges, gst, payment, deposit, tiers, no_show, responsibilities, contact]
+
+  - doc_id: RW-POL-02
+    file: Data/02_Cancellation_and_Refund_Policy_v1.pdf
+    title: Cancellation & Refund Policy (Version 1)
+    version: "1"
+    effective_from: "2025-01-01T00:00:00+05:30"
+    applies_to: "Bookings made before 1 July 2026, 00:00 IST"
+    superseded_by: RW-POL-03
+    topics: [cancellation, refund]
+
+  - doc_id: RW-POL-03
+    file: Data/03_Cancellation_and_Refund_Policy_v2.pdf
+    title: Cancellation & Refund Policy (Version 2)
+    version: "2"
+    effective_from: "2026-07-01T00:00:00+05:30"
+    applies_to: "Bookings made on or after 1 July 2026, 00:00 IST"
+    supersedes: RW-POL-02
+    topics: [cancellation, refund]
+    image_only:
+      - {page: 2, content: "Annexure 1 refund schedule", transcription: "policies/annexures.md#rw-pol-03-annexure-1"}
+
+  - doc_id: RW-POL-04
+    file: Data/04_Late_Return_and_Damage_Penalty_Schedule.pdf
+    title: Late Return & Damage Penalty Schedule
+    version: "2.1"
+    effective_from: "2025-01-01T00:00:00+05:30"
+    topics: [late_return, battery_fee, damage, tiers]
+    image_only:
+      - {page: 3, content: "Annexure A tier benefits", transcription: "policies/annexures.md#rw-pol-04-annexure-a"}
+
+  - doc_id: RW-POL-05
+    file: Data/05_EV_User_Guide_and_FAQ.pdf
+    title: EV User Guide & FAQ
+    version: "1.4"
+    effective_from: null   # not stated in the document
+    topics: [ev_fleet, range, charging, ev_return, battery_fee, breakdown]
+    image_only:
+      - {page: 1, content: "Figure 1 charging steps", transcription: "policies/annexures.md#rw-pol-05-figure-1"}
+      - {page: 2, content: "Figure 2 battery bands", transcription: "policies/annexures.md#rw-pol-05-figure-2"}

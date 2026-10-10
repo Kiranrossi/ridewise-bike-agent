@@ -1,0 +1,43 @@
+# General rental terms (RW-POL-01 v3.0) that the assistant reasons over.
+
+eligibility:
+  min_age: 18
+  valid_licence_required: true
+  one_account_per_customer: true
+  source: "RW-POL-01 §1"
+
+kyc:
+  VERIFIED: {can_book: true, vehicle_released: true, meaning: "Book and pick up any vehicle"}
+  PENDING: {can_book: true, vehicle_released: false, meaning: "Can book in advance; vehicle released only after KYC is verified"}
+  REJECTED: {can_book: false, vehicle_released: false, meaning: "Cannot rent; any existing booking is cancelled by RideWise"}
+  pending_at_pickup: cancelled_by_ridewise_full_refund
+  source: "RW-POL-01 §2"
+
+pickup_return:
+  same_hub_return: true
+  source: "RW-POL-01 §3.1"
+
+no_show:
+  pickup_window_minutes: 60
+  definition: "Not picked up within 60 minutes of scheduled pickup and not cancelled before scheduled pickup"
+  rental_refunded: false
+  extra_fee: false
+  source: "RW-POL-01 §7"
+
+tiers:
+  values: [STANDARD, SILVER, GOLD]
+  assigned_by: rental_history
+  documented_benefits: "Only the late-return grace period (RW-POL-04 Annexure A). No other tier benefit is documented."
+  source: "RW-POL-01 §6"
+
+ev:
+  min_charge_at_pickup_pct: 80
+  hub_charging_free: true
+  home_charging: "Allowed with the supplied RideWise cable and a properly earthed 15 A socket"
+  source: "RW-POL-05 §2–3, §5"
+
+support_contact:
+  email: support@ridewise.example
+  phone: "+91 80 4000 1234"
+  hours: "7:00 AM to 11:00 PM IST, every day"
+  source: "RW-POL-01 §9"

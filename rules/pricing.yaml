@@ -1,0 +1,42 @@
+# Rental charges, GST, payments and deposits (RW-POL-01 §4, §5).
+# Per-vehicle hourly/daily rates live in the database (vehicles table), not here.
+
+gst_rate: 0.18
+gst_applies_to: [rental_charge, penalty, fee]
+gst_source: "RW-POL-01 §4.3; RW-POL-04 intro"
+
+booking:
+  whole_hours_only: true
+  min_hours: 2
+  source: "RW-POL-01 §3.2"
+
+rental_charge:
+  # Every full 24-hour block at the daily rate; remaining hours at the hourly rate,
+  # but the remainder never costs more than one daily rate.
+  block_hours: 24
+  remainder_capped_at_daily_rate: true
+  source: "RW-POL-01 §4.1"
+  worked_examples:   # hourly ₹80, daily ₹700 (RW-POL-01 §4.2)
+    - {hours: 4, hourly: 80, daily: 700, charge: 320}
+    - {hours: 10, hourly: 80, daily: 700, charge: 700}
+    - {hours: 24, hourly: 80, daily: 700, charge: 700}
+    - {hours: 27, hourly: 80, daily: 700, charge: 940}
+
+payment:
+  full_charge_paid_at_booking: true
+  instalments_allowed_before_pickup: true
+  failed_attempt_is_charged: false
+  source: "RW-POL-01 §4.4"
+
+deposit:
+  # "may be collected" — presence in the payments table is not guaranteed.
+  rules:
+    - {vehicle_types: [BIKE, EV_BIKE], min_hours: 0, amount: 1000}
+    - {vehicle_types: [SCOOTER, EV_SCOOTER], min_hours: 24, amount: 500}
+  gst: false
+  is_rental_charge: false
+  returned_within_working_days: 3
+  returned_to: original_payment_method
+  shown_in_ridewise_records: false      # processed by the payment gateway
+  unpaid_penalties_recoverable: true
+  source: "RW-POL-01 §5.1–5.3"

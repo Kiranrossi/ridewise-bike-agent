@@ -1,0 +1,49 @@
+# Normalisation of messy values and plain-language labels.
+# Matching is case-insensitive and ignores extra spaces/hyphens.
+
+cities:
+  Bengaluru: [bengaluru, bangalore, blr, bengalooru, banglore]
+  Chennai: [chennai, madras]
+  Hyderabad: [hyderabad, hyd]
+  Mangaluru: [mangaluru, mangalore]
+  Mysuru: [mysuru, mysore]
+  Pune: [pune]
+
+hubs:   # the 7 hubs listed in RW-POL-01 §3.1
+  Koramangala: [koramangala, kormangala, koramangla]
+  Indiranagar: [indiranagar, indira nagar, indra nagar]
+  Jayanagar: [jayanagar, jaya nagar]
+  HSR Layout: [hsr layout, hsr]
+  Electronic City: [electronic city, ec, e city, ecity, electronics city]
+  Whitefield: [whitefield, white field]
+  Hebbal: [hebbal]
+
+vehicle_types:
+  BIKE: [bike, motorcycle, motorbike, petrol bike]
+  SCOOTER: [scooter, scooty, petrol scooter]
+  EV_SCOOTER: [ev scooter, electric scooter, e scooter, escooter]
+  EV_BIKE: [ev bike, electric bike, e bike, ebike, electric motorcycle]
+
+booking_status:
+  UPC: {customer: "Upcoming", agent: "Upcoming (UPC)"}
+  ONG: {customer: "Ongoing", agent: "Ongoing (ONG)"}
+  CMP: {customer: "Completed", agent: "Completed (CMP)"}
+  CNL_U: {customer: "Cancelled by you", agent: "Cancelled by customer (CNL_U)"}
+  CNL_S: {customer: "Cancelled by RideWise", agent: "Cancelled by RideWise (CNL_S)"}
+  NSH: {customer: "No-show (not picked up)", agent: "No-show (NSH)"}
+
+payment_type:
+  BOOKING: "Rental payment"
+  DEPOSIT: "Security deposit"
+  PENALTY: "Penalty / fee"
+  REFUND: "Refund"
+
+payment_status:
+  SUCCESS: "Successful"
+  FAILED: "Failed (not charged)"
+  PENDING: "Pending confirmation"
+
+vehicle_status:
+  ACTIVE: "Active"
+  MAINTENANCE: "Under maintenance"
+  RETIRED: "Retired"
